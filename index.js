@@ -9,7 +9,8 @@ const { CloudinaryStorage } = require('multer-storage-cloudinary');
 
 const app = express();
 app.use(express.json());
-app.use(cors());
+const allowedOrigins = (process.env.CORS_ORIGINS || 'https://portifoliootaviodevweb.vercel.app,http://localhost:3000').split(',');
+app.use(cors({ origin: allowedOrigins }));
 
 // 1. Conexão com MongoDB
 mongoose.connect(process.env.MONGO_URI)
@@ -40,6 +41,21 @@ const ProjectSchema = new mongoose.Schema({
 });
 const Project = mongoose.model('Project', ProjectSchema);
 
+// Autenticação simples para rotas de escrita (defina ADMIN_TOKEN no Render).
+// Sem ADMIN_TOKEN configurado, toda escrita é recusada (falha fechada).
+const crypto = require('crypto');
+function requireAdmin(req, res, next) {
+    const expected = process.env.ADMIN_TOKEN;
+    const received = req.get('x-admin-token') || '';
+    if (!expected) return res.status(503).json({ error: 'ADMIN_TOKEN não configurado no servidor' });
+    const a = Buffer.from(received);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+        return res.status(401).json({ error: 'Não autorizado' });
+    }
+    next();
+}
+
 // --- ROTAS ---
 
 // GET: Pegar todos os projetos
@@ -49,7 +65,7 @@ app.get('/projects', async (req, res) => {
 });
 
 // POST: Criar projeto (Com upload de até 5 imagens)
-app.post('/projects', upload.array('images', 5), async (req, res) => {
+app.post('/projects', requireAdmin, upload.array('images', 5), async (req, res) => {
     try {
         const { title, description, repoUrl, demoUrl, technologies } = req.body;
         
@@ -76,7 +92,7 @@ app.post('/projects', upload.array('images', 5), async (req, res) => {
 });
 
 // DELETE: Apagar projeto
-app.delete('/projects/:id', async (req, res) => {
+app.delete('/projects/:id', requireAdmin, async (req, res) => {
     await Project.findByIdAndDelete(req.params.id);
     res.json({ message: "Deletado com sucesso" });
 });
